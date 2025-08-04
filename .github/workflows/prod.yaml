@@ -1,0 +1,83 @@
+name: Terraform Prod Deployment
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  ENVIRONMENT: prod
+  APPROVAL_REQUIRED: true
+  GITHUB_ENVIRONMENT: prod-approval
+
+jobs:
+  terraform-plan:
+    name: Terraform Plan (prod)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.12.1
+
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Terraform Init
+        working-directory: terraform-infrastructure
+        run: terraform init -backend-config="environments/${{ env.ENVIRONMENT }}/backend.hcl"
+
+      - name: Terraform Plan
+        working-directory: terraform-infrastructure
+        run: terraform plan -var-file="environments/${{ env.ENVIRONMENT }}/infra.tfvars" -out=tfplan
+
+      - name: Upload Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ env.ENVIRONMENT }}
+          path: terraform-infrastructure/tfplan
+
+  terraform-apply:
+    name: Terraform Apply (prod - Manual Approval Required)
+    needs: terraform-plan
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: prod-approval
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.12.1
+
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Terraform Init
+        working-directory: terraform-infrastructure
+        run: terraform init -backend-config="environments/${{ env.ENVIRONMENT }}/backend.hcl"
+
+      - name: Download Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ env.ENVIRONMENT }}
+          path: terraform-infrastructure
+
+      - name: Terraform Apply
+        working-directory: terraform-infrastructure
+        run: terraform apply tfplan
