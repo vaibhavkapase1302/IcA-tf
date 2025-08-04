@@ -1,4 +1,4 @@
-# WareIQ Terraform Infrastructure
+# Terraform Infrastructure
 
 Multi-environment AWS infrastructure management using Terraform and GitHub Actions.
 
